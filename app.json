@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "영수증 장부",
+    "slug": "app-receipt",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "sdkVersion": "49.0.0",
+    "platforms": ["ios", "android", "web"],
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {}
+  }
+}

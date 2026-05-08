@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\Git\\\\cmd;\" + $env:PATH; cd \"C:\\\\Users\\\\고은정\\\\Desktop\\\\차진영\\\\APP_RECIPT\"; git add .; git status)"
+    ]
+  }
+}
