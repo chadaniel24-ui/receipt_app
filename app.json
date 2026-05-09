@@ -15,6 +15,8 @@
         "backgroundColor": "#ffffff"
       }
     },
-    "web": {}
+    "web": {
+      "publicPath": "/receipt_app/"
+    }
   }
 }
