@@ -61,6 +61,11 @@ export default function App() {
   // 부분결제 입력
   const [payInput, setPayInput] = useState('');
 
+  // SMS 가져오기
+  const [smsImportVisible, setSmsImportVisible] = useState(false);
+  const [smsText, setSmsText] = useState('');
+  const [parsedSms, setParsedSms] = useState(null);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -98,6 +103,51 @@ export default function App() {
     } catch (e) {
       console.error('[ERROR] 거래처 저장 실패', e);
     }
+  };
+
+  // ─── SMS 파싱 ─────────────────────────────────────────────────────────────
+
+  const parseSmsText = (text) => {
+    console.log('[INFO] SMS 파싱 시작');
+    const result = { type: null, amount: null, date: todayStr(), note: '' };
+
+    // 금액: 쉼표 포함 숫자 + '원' — 가장 첫 번째가 거래금액
+    const amountMatch = text.match(/([0-9]{1,3}(?:,[0-9]{3})*)\s*원/);
+    if (amountMatch) result.amount = parseInt(amountMatch[1].replace(/,/g, ''), 10);
+
+    // 날짜: MM/DD 또는 MM월DD일 형식
+    const now = new Date();
+    const dateMatch = text.match(/(\d{1,2})[\/월](\d{1,2})/);
+    if (dateMatch) {
+      result.date = `${now.getFullYear()}-${dateMatch[1].padStart(2, '0')}-${dateMatch[2].padStart(2, '0')}`;
+    }
+
+    // 거래 유형 판단
+    if (/입금|수신|받음/.test(text)) {
+      result.type = '매출';
+    } else {
+      result.type = '매입'; // 승인·결제·출금·이체·송금 모두 매입
+    }
+
+    // 메모: 시간(HH:MM) 뒤 상점명 → 이체 대상명 → 대괄호 은행명 순으로 추출
+    const merchantMatch = text.match(/\d{1,2}:\d{2}\s+([가-힣A-Za-z0-9·&]+)\s+[0-9,]+원/);
+    const transferMatch = text.match(/([가-힣A-Za-z0-9]+)(에게|에서)/);
+    const bankMatch = text.match(/\[([^\]]+)\]/);
+    if (merchantMatch) {
+      result.note = merchantMatch[1].trim();
+    } else if (transferMatch) {
+      result.note = transferMatch[1].trim();
+    } else if (bankMatch) {
+      result.note = bankMatch[1].trim();
+    } else {
+      result.note = text.replace(/\s+/g, ' ').trim().substring(0, 30);
+    }
+
+    console.log('[INFO] SMS 파싱 완료', result);
+    if (!result.amount) {
+      console.log('[DEBUG] 금액 인식 실패 — 문자 형식을 확인하세요');
+    }
+    setParsedSms(result);
   };
 
   // ─── 이미지 선택 ──────────────────────────────────────────────────────────
@@ -637,6 +687,85 @@ export default function App() {
     </Modal>
   );
 
+  // ─── SMS 가져오기 모달 ────────────────────────────────────────────────────
+
+  const SmsImportModal = () => (
+    <Modal visible={smsImportVisible} animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <Text style={styles.modalTitle}>SMS로 거래 가져오기</Text>
+            <Text style={styles.inputLabel}>카드 승인·이체 문자를 여기에 붙여넣으세요</Text>
+            <TextInput
+              style={[styles.input, styles.textArea, { height: 110 }]}
+              placeholder={
+                '[KB국민카드] 01/15 14:30 스타벅스 5,500원 승인\n또는\n[신한은행] 01/15 홍길동에게 50,000원 이체'
+              }
+              value={smsText}
+              onChangeText={(t) => { setSmsText(t); setParsedSms(null); }}
+              multiline
+            />
+            <TouchableOpacity
+              style={[styles.saveButton, { marginBottom: 16, borderRadius: 12, paddingVertical: 13 }]}
+              onPress={() => parseSmsText(smsText)}
+            >
+              <Text style={styles.saveBtnText}>분석하기</Text>
+            </TouchableOpacity>
+
+            {parsedSms && (
+              <View style={styles.parsedBox}>
+                <Text style={[styles.inputLabel, { marginBottom: 10 }]}>분석 결과</Text>
+                <DetailRow label="유형" value={parsedSms.type || '-'} />
+                <DetailRow
+                  label="금액"
+                  value={parsedSms.amount ? formatAmount(parsedSms.amount) : '인식 실패'}
+                  valueColor={parsedSms.amount ? '#1a1a2e' : '#dc3545'}
+                />
+                <DetailRow label="날짜" value={parsedSms.date} />
+                <DetailRow label="메모" value={parsedSms.note || '-'} />
+                {!parsedSms.amount && (
+                  <Text style={styles.smsHint}>
+                    금액을 인식하지 못했습니다. 문자 전체를 복사해서 다시 시도하세요.
+                  </Text>
+                )}
+              </View>
+            )}
+
+            <View style={[styles.modalButtons, { marginTop: 8 }]}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => { setSmsImportVisible(false); setSmsText(''); setParsedSms(null); }}
+              >
+                <Text style={styles.cancelBtnText}>취소</Text>
+              </TouchableOpacity>
+              {parsedSms && parsedSms.amount ? (
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.saveButton]}
+                  onPress={() => {
+                    console.log('[INFO] SMS 파싱 결과로 거래 추가 폼 열기', parsedSms);
+                    setTxType(parsedSms.type || '매입');
+                    setTxAmount(parsedSms.amount.toString());
+                    setTxPaidAmount('');
+                    setTxDate(parsedSms.date);
+                    setTxNote(parsedSms.note);
+                    setTxImage(null);
+                    setTxCustomerId('');
+                    setSmsImportVisible(false);
+                    setSmsText('');
+                    setParsedSms(null);
+                    setAddTxVisible(true);
+                  }}
+                >
+                  <Text style={styles.saveBtnText}>거래 추가하기</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+
   // ─── 상세 행 컴포넌트 ─────────────────────────────────────────────────────
 
   const DetailRow = ({ label, value, valueColor }) => (
@@ -665,12 +794,20 @@ export default function App() {
       <StatusBar style="dark" />
 
       <View style={styles.header}>
-        <Text style={styles.title}>{tabTitles[activeTab]}</Text>
-        {activeTab === 'home' && (
-          <Text style={styles.subtitle}>
-            거래 {transactions.length}건 · 미결제 {formatAmount(stats.totalUnpaid)}
-          </Text>
-        )}
+        <View>
+          <Text style={styles.title}>{tabTitles[activeTab]}</Text>
+          {activeTab === 'home' && (
+            <Text style={styles.subtitle}>
+              거래 {transactions.length}건 · 미결제 {formatAmount(stats.totalUnpaid)}
+            </Text>
+          )}
+        </View>
+        <TouchableOpacity
+          style={styles.smsBtn}
+          onPress={() => { setSmsText(''); setParsedSms(null); setSmsImportVisible(true); }}
+        >
+          <Text style={styles.smsBtnText}>📱 SMS</Text>
+        </TouchableOpacity>
       </View>
 
       {activeTab === 'home' && <HomeScreen />}
@@ -703,6 +840,7 @@ export default function App() {
       <AddTransactionModal />
       <TransactionDetailModal />
       <AddCustomerModal />
+      <SmsImportModal />
     </SafeAreaView>
   );
 }
@@ -715,11 +853,37 @@ const styles = StyleSheet.create({
     backgroundColor: '#f6f7fb',
   },
   header: {
-    paddingVertical: 20,
+    paddingVertical: 16,
     paddingHorizontal: 20,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  smsBtn: {
+    backgroundColor: '#e8ecff',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  smsBtnText: {
+    color: '#4f6cff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  parsedBox: {
+    backgroundColor: '#f8f9ff',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+  },
+  smsHint: {
+    marginTop: 10,
+    fontSize: 12,
+    color: '#dc3545',
+    lineHeight: 18,
   },
   title: {
     fontSize: 22,
